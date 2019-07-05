@@ -1,112 +1,91 @@
-#include <SPI.h>
-#include <Ethernet.h>
+//#include <SPI.h>
 #include "RF24.h" 
 #include <OneWire.h>
+#include <DallasTemperature.h>
+#include <ESP8266WiFi.h>
 
 // API
 char apiServerHostname[] = "homeiot.aspifyhost.cz";
 int apiServerPort = 80;
 String apiAddress = "/API/Write?sensorIdentificator=#ID&value=#VAL";
 
-// Ethernet
-byte mac[] = { 0xD4, 0xAD, 0xBE, 0xEF, 0xFE, 0x7D };
-IPAddress ip(192, 168, 1, 155);
-EthernetClient client;
+// WiFi
+const char* nazevWifi = "Internet";
+const char* hesloWifi = "qawsedrftgzh!";
+WiFiClient client;
 
 
 // Sensor server
 // nastaveni propojovacich pinu
-#define CE 7
-#define CS 8
-// inicializace nRF s piny CE a CS
-RF24 nRF(CE, CS);
+RF24 nRF(2, 15);
 
-char adresaPrijimac[] = "sensorServer";
-char adresaVysilac[] = "sensorKotelna";
+byte adresaPrijimac[] = "sensorServer";
+byte adresaVysilac[] = "sensorKotelna";
+const int RF_PIPE_KOTELNA = 1;
 
 
-// senzor teploty
-#define P_CIDLO 6
-OneWire ds(P_CIDLO);
+// Interni senzor teploty
+#define ONE_WIRE_BUS 5
+OneWire ds(ONE_WIRE_BUS);
+DallasTemperature senzoryDS(&ds);
 
-unsigned long lastTemperatureSent = 0;	// cas od posledniho nahlaseni teploty
-const unsigned long TEMPERATURE_INTERVAL = 60000;	// interval nahlasovani teploty
-const String TEMPERATURE_DATA_IDENTIFICATOR = "sensor_server_ambient_temperature";	// identifikator cisla teploty
+unsigned long lastTemperatureSent = 0;  // cas od posledniho nahlaseni interni teploty
+const unsigned long TEMPERATURE_INTERVAL = 60000; // interval nahlasovani interni teploty
+const String INTERNAL_TEMPERATURE_DATA_IDENTIFICATOR = "sensor_server_ambient_temperature";  // identifikator cidla interni teploty
+const String KOTELNA_INTERNAL_TEMPERATURE_DATA_IDENTIFICATOR = "kotelna_ambient_temperature";  // identifikator cidla interni teploty v kotelne
 
 
 
 void setup()
 {
-	// vypnu sd kartu
-	pinMode(10, OUTPUT);
-	digitalWrite(10, HIGH);
-
-	// nastavim port cidla
-	pinMode(P_CIDLO, INPUT);
-
 	// inicializace serioveho portu
 	Serial.begin(9600);
 
+	Serial.println(F("Startuji"));
+
+	// nastavim port cidla
+	Serial.println(F("  IO porty"));
+	pinMode(ONE_WIRE_BUS, INPUT);
+
 	// inicalizace site
-	Serial.println(F("Startuji ethernet."));
-	Ethernet.begin(mac, ip);
-	Serial.println(Ethernet.localIP());
+	Serial.print(F("  Wifi"));
+	WiFi.begin(nazevWifi, hesloWifi);
+	while (WiFi.status() != WL_CONNECTED) {
+		delay(500);
+		Serial.print(".");
+	}
+	Serial.println("");
 
 
+	// zapnuti komunikace nRF modulu
+	Serial.println(F("  RF24"));
+	nRF.begin();
 
-	//// zapnuti komunikace nRF modulu
-	//nRF.begin();
-
-	//// nastaveni zapisovaciho a cteciho kanalu
-	////nRF.openWritingPipe(adresaPrijimac);
-	//nRF.openReadingPipe(1, adresaVysilac);
-	//// zacatek prijmu dat
-	//nRF.startListening();
+	// nastaveni zapisovaciho a cteciho kanalu
+	//nRF.openWritingPipe(adresaPrijimac);
+	nRF.openReadingPipe(RF_PIPE_KOTELNA, adresaVysilac);
+	// zacatek prijmu dat
+	nRF.startListening();
 
 	// cas na usazeni
-	delay(1000);
-	Serial.println(F("Nastartovano."));
+	delay(2000);
+	Serial.println(F("Nastartovano"));
 }
 
-
-int i = 1;
-void loop()
-{
-	//Ethernet.maintain();
-
-	unsigned long time = millis();
-
-	if (time - lastTemperatureSent > 10000)
-	{
-		float temp = getTemp();
-		Serial.println("Odesilam teplotu " + String(temp));
-		sendData(TEMPERATURE_DATA_IDENTIFICATOR, temp);
-		lastTemperatureSent = time;
-	}
-
-
-	//if (i++ % 10000 == 0)
-	//	sendData("arduino", 15.15);
-
-	  // promenna pro prijemm a odezvu
-
-
-
-	//if (nRF.available()) {
-	//	// cekani na prijem dat
-	//	int prijem;
-	//	while (nRF.available()) {
-	//		// v pripade prijmu dat se provede zapis
-	//		// do promenne prijem
-	//		nRF.read(&prijem, sizeof(prijem));
-	//		Serial.println(prijem);
-	//	}
-	//}
-}
 
 //odesle hodnotu senzoru do API
 void sendData(String identificator, float value)
 {
+	if (value == 0)
+	{
+		Serial.println(F("Preskoceno odesilani nulove teploty"));
+		Serial.println();
+		Serial.println();
+		return;
+	}
+
+	Serial.println("Odesilam teplotu " + String(value) + " ze senzoru " + identificator);
+
 	// pripravim parametry adresy pro API
 	String addr = apiAddress;
 	addr.replace("#ID", identificator);
@@ -118,73 +97,96 @@ void sendData(String identificator, float value)
 	if (client.connect(apiServerHostname, apiServerPort))
 	{
 		// poslu GET
-		Serial.println(F("Pripojeno!"));
+		Serial.println(F("Pripojeno. Odesilam data."));
 
 		client.println("GET " + addr + " HTTP/1.1");
 		client.println("Host: " + String(apiServerHostname));
-		client.println(F("Content-Type: application/x-www-form-urlencoded"));
+		client.println(F("Accept: */*"));
+		client.println(F("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/537.36"));
 		client.println(F("Connection: close"));
 		client.println();
-		client.println();
+
+		Serial.println(F("Odeslano. Odpoved:"));
+
+		// prectu odpoved
+		String line = "x";
+		while (client.connected())
+		{
+			line = client.readStringUntil('\r');
+
+			// cti, dokud neprijde prazdny string
+			if (line.length() > 1)
+				Serial.print(line);
+			else
+				break;
+		}
 		client.stop();
 
-		Serial.println(F("Odeslano!"));
+		Serial.println();
+		Serial.println(F("Hotovo."));
+		Serial.println();
+		Serial.println();
 	}
 
-	else 
+	else
 	{
 		Serial.println(F("Spojeni se nepovedlo."));
 	}
 }
 
+void loop()
+{
+	unsigned long time = millis();
 
-float getTemp() {
-	//returns the temperature from one DS18S20 in DEG Celsius
+	if (time - lastTemperatureSent > TEMPERATURE_INTERVAL)
+	{
+		// odeslu interni teplotu
+		senzoryDS.requestTemperatures();
+		float temp = senzoryDS.getTempCByIndex(0);
 
-	byte data[12];
-	byte addr[8];
 
-	if (!ds.search(addr)) {
-		//no more sensors on chain, reset search
-		ds.reset_search();
-		return -1000;
+		sendData(INTERNAL_TEMPERATURE_DATA_IDENTIFICATOR, temp);
+		lastTemperatureSent = time;
 	}
 
-	if (OneWire::crc8(addr, 7) != addr[7]) {
-		Serial.println(F("CRC is not valid!"));
-		return -1000;
+
+	// prijem dat z RF
+	if (nRF.available())
+	{
+		// cekani na prijem dat
+		int sensorId;
+		float sensorValue;
+		while (nRF.available())
+		{
+			Serial.println(F("Nova data ze vzdaleneho senzoru"));
+
+			nRF.read(&sensorId, sizeof(sensorId));
+			delay(100);
+
+			if (nRF.available()) 
+				nRF.read(&sensorValue, sizeof(sensorValue));
+			else
+				sensorValue = 0;
+
+			switch (sensorId)
+			{
+			case 1:
+				Serial.println(KOTELNA_INTERNAL_TEMPERATURE_DATA_IDENTIFICATOR + ": " + String(sensorValue));
+				sendData(KOTELNA_INTERNAL_TEMPERATURE_DATA_IDENTIFICATOR, sensorValue);
+				break;
+			default:
+				Serial.println("unknown (" + String(sensorId) + "): " + String(sensorValue));
+				break;
+			}
+
+			if (sensorId > 1000)
+			{
+				// rozhodilo se nam poradi, zkusim to srovnat
+				if (nRF.available())
+					nRF.read(&sensorId, sizeof(sensorId));
+			}
+
+		}
+		Serial.println();
 	}
-
-	if (addr[0] != 0x10 && addr[0] != 0x28) {
-		Serial.print(F("Device is not recognized"));
-		return -1000;
-	}
-
-	ds.reset();
-	ds.select(addr);
-	ds.write(0x44, 1); // start conversion, with parasite power on at the end
-
-	byte present = ds.reset();
-	ds.select(addr);
-	ds.write(0xBE); // Read Scratchpad
-
-
-	for (int i = 0; i < 9; i++) { // we need 9 bytes
-		data[i] = ds.read();
-	}
-
-	ds.reset_search();
-
-	byte MSB = data[1];
-	byte LSB = data[0];
-
-	float tempRead = ((MSB << 8) | LSB); //using two's compliment
-	float TemperatureSum = tempRead / 16;
-
-	return TemperatureSum;
-
 }
-
-
-
-
