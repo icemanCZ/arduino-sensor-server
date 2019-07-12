@@ -1,0 +1,6 @@
+#pragma once
+const int SENSOR_KOTELNA_INTERNI_ID = 1;
+const int SENSOR_KOTELNA_KOUROVOD_ID = 2;
+const int SENSOR_KOTELNA_VYSTUP_ID = 3;
+const int SENSOR_KOTELNA_ZPATECKA_ID = 4;
+
