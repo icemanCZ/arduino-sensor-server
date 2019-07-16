@@ -1,5 +1,6 @@
-//#include <SPI.h>
+// libraries
 #include "shared.h" 
+//#include <SPI.h>
 #include "RF24.h" 
 #include <OneWire.h>
 #include <DallasTemperature.h>
@@ -11,12 +12,12 @@
 char apiServerHostname[] = "homeiot.aspifyhost.cz";
 int apiServerPort = 80;
 String apiAddress = "/API/Write?sensorIdentificator=#ID&value=#VAL";
-// senzory
-const String SELF_INTERNAL_TEMPERATURE_DATA_IDENTIFICATOR = "sensor_server_ambient_temperature";  // identifikator cidla interni teploty
-const String KOTELNA_INTERNAL_TEMPERATURE_DATA_IDENTIFICATOR = "kotelna_ambient_temperature";  // identifikator cidla interni teploty v kotelne
-const String KOTELNA_SMOKE_TEMPERATURE_DATA_IDENTIFICATOR = "kotelna_smoke_temperature";  // identifikator cidla teploty kourovodu v kotelne
-const String KOTELNA_OUTPUT_TEMPERATURE_DATA_IDENTIFICATOR = "kotelna_output_temperature";  // identifikator cidla teploty vystupu z kotle v kotelne
-const String KOTELNA_RETURN_TEMPERATURE_DATA_IDENTIFICATOR = "kotelna_return_temperature";  // identifikator cidla teploty zpatecky kotle v kotelne
+// API sensor identificators
+const String SENSOR_SELF_INTERNAL_TEMPERATURE_DATA_IDENTIFICATOR = "sensor_server_ambient_temperature";  // identifikator cidla interni teploty
+const String SENSOR_KOTELNA_INTERNAL_TEMPERATURE_DATA_IDENTIFICATOR = "kotelna_ambient_temperature";  // identifikator cidla interni teploty v kotelne
+const String SENSOR_KOTELNA_SMOKE_TEMPERATURE_DATA_IDENTIFICATOR = "kotelna_smoke_temperature";  // identifikator cidla teploty kourovodu v kotelne
+const String SENSOR_KOTELNA_OUTPUT_TEMPERATURE_DATA_IDENTIFICATOR = "kotelna_output_temperature";  // identifikator cidla teploty vystupu z kotle v kotelne
+const String SENSOR_KOTELNA_RETURN_TEMPERATURE_DATA_IDENTIFICATOR = "kotelna_return_temperature";  // identifikator cidla teploty zpatecky kotle v kotelne
 
 
 
@@ -31,22 +32,20 @@ WiFiClient client;
 
 
 // Sensor server
-// nastaveni propojovacich pinu
-RF24 nRF(2, 15);
-const byte RF_ADDRESS_KOTELNA[] = "sensorKotelna";
-const int RF_PIPE_KOTELNA = 1;
+RF24 nRF(2, 15);   // init pins CE, CS
+const int RF_KOTELNA_PIPE = 1;
 
 
 
 
 
-// Interni senzor teploty
+// OneWire sensor
 #define ONE_WIRE_BUS 5
 OneWire ds(ONE_WIRE_BUS);
 DallasTemperature senzoryDS(&ds);
 
-unsigned long lastTemperatureSent = 0;  // cas od posledniho nahlaseni interni teploty
-const unsigned long TEMPERATURE_INTERVAL = 60000; // interval nahlasovani interni teploty
+unsigned long lastSensorValuesSent = 0;  // time from last internal sensor notification
+const unsigned long SENSOR_VALUES_SEND_INTERVAL = 5UL * 60UL * 1000UL; // internal sensor notification interval
 
 
 
@@ -62,55 +61,10 @@ const unsigned long TEMPERATURE_INTERVAL = 60000; // interval nahlasovani intern
 
 
 
-
-void setup()
-{
-	// inicializace serioveho portu
-	Serial.begin(9600);
-
-	Serial.println(F("Startuji"));
-
-	// nastavim port cidla
-	Serial.println(F("  IO porty"));
-	pinMode(ONE_WIRE_BUS, INPUT);
-
-	// inicalizace site
-	Serial.print(F("  Wifi"));
-	WiFi.begin(nazevWifi, hesloWifi);
-	while (WiFi.status() != WL_CONNECTED) {
-		delay(500);
-		Serial.print(".");
-	}
-	Serial.println("");
-
-
-	// zapnuti komunikace nRF modulu
-	Serial.println(F("  RF24"));
-	nRF.begin();
-
-	nRF.setPALevel(RF24_PA_HIGH);
-	//nRF.disableDynamicPayloads();
-	//nRF.setDataRate(RF24_250KBPS);
-	//nRF.setAutoAck(false);
-	//nRF.setChannel(50);
-
-	// nastaveni zapisovaciho a cteciho kanalu
-	//nRF.openWritingPipe(adresaPrijimac);
-	nRF.openReadingPipe(RF_PIPE_KOTELNA, RF_ADDRESS_KOTELNA);
-	// zacatek prijmu dat
-	nRF.startListening();
-
-	// cas na usazeni
-	delay(2000);
-
-	Serial.println(F("Nastartovano"));
-}
-
-
-//odesle hodnotu senzoru do API
+// send sensor value to API
 void sendData(String identificator, float value)
 {
-	if (value == 0)
+	if (value == 0 || value == -127)
 	{
 		Serial.println(F("Preskoceno odesilani nulove teploty"));
 		Serial.println();
@@ -120,7 +74,7 @@ void sendData(String identificator, float value)
 
 	Serial.println("Odesilam teplotu " + String(value) + " ze senzoru " + identificator);
 
-	// pripravim parametry adresy pro API
+	// API address params
 	String addr = apiAddress;
 	addr.replace("#ID", identificator);
 	addr.replace("#VAL", String(value));
@@ -130,7 +84,7 @@ void sendData(String identificator, float value)
 
 	if (client.connect(apiServerHostname, apiServerPort))
 	{
-		// poslu GET
+		// send GET
 		Serial.println(F("Pripojeno. Odesilam data."));
 
 		client.println("GET " + addr + " HTTP/1.1");
@@ -142,13 +96,13 @@ void sendData(String identificator, float value)
 
 		Serial.println(F("Odeslano. Odpoved:"));
 
-		// prectu odpoved
+		// read response
 		String line = "x";
 		while (client.connected())
 		{
 			line = client.readStringUntil('\r');
 
-			// cti, dokud neprijde prazdny string
+			// read till empty string
 			if (line.length() > 1)
 				Serial.print(line);
 			else
@@ -168,25 +122,74 @@ void sendData(String identificator, float value)
 	}
 }
 
+
+
+
+void setup()
+{
+	// serial line communication with 9600 baud
+	Serial.begin(9600);
+
+	Serial.println(F("Startuji"));
+
+	// set OneWire port
+	Serial.println(F("  IO porty"));
+	pinMode(ONE_WIRE_BUS, INPUT);
+
+	// init WiFi
+	Serial.print(F("  Wifi"));
+	WiFi.begin(nazevWifi, hesloWifi);
+	while (WiFi.status() != WL_CONNECTED) {
+		delay(500);
+		Serial.print(".");
+	}
+	Serial.println("");
+
+
+	// begin nRF24 communication
+	Serial.println(F("  RF24"));
+	nRF.begin();
+
+	nRF.setPALevel(RF24_PA_HIGH);
+	//nRF.disableDynamicPayloads();
+	//nRF.setDataRate(RF24_250KBPS);
+	//nRF.setAutoAck(false);
+	//nRF.setChannel(50);
+
+	// set read pipe
+	//nRF.openWritingPipe(adresaPrijimac);
+	nRF.openReadingPipe(RF_KOTELNA_PIPE, RF_KOTELNA_ADDRESS);
+	nRF.startListening();
+
+	// settle time
+	delay(2000);
+
+	Serial.println(F("Nastartovano"));
+}
+
+
+
+
+
 void loop()
 {
 	unsigned long time = millis();
 
-	if (time - lastTemperatureSent > TEMPERATURE_INTERVAL)
+	if (time - lastSensorValuesSent > SENSOR_VALUES_SEND_INTERVAL)
 	{
-		// odeslu interni teplotu
+		// send internal temperature
 		senzoryDS.requestTemperatures();
 		float temp = senzoryDS.getTempCByIndex(0);
 
-		sendData(SELF_INTERNAL_TEMPERATURE_DATA_IDENTIFICATOR, temp);
-		lastTemperatureSent = time;
+		sendData(SENSOR_SELF_INTERNAL_TEMPERATURE_DATA_IDENTIFICATOR, temp);
+		lastSensorValuesSent = time;
 	}
 
 
-	// prijem dat z RF
+	// read data from RF
 	if (nRF.available())
 	{
-		// cekani na prijem dat
+		// wait for data
 		long sensorId;
 		float sensorValue;
 		while (nRF.available())
@@ -204,31 +207,31 @@ void loop()
 
 			switch (sensorId)
 			{
-			case SENSOR_KOTELNA_INTERNI_ID:
-				Serial.println(KOTELNA_INTERNAL_TEMPERATURE_DATA_IDENTIFICATOR + ": " + String(sensorValue));
-				sendData(KOTELNA_INTERNAL_TEMPERATURE_DATA_IDENTIFICATOR, sensorValue);
-				break;
-			case SENSOR_KOTELNA_KOUROVOD_ID:
-				Serial.println(KOTELNA_SMOKE_TEMPERATURE_DATA_IDENTIFICATOR + ": " + String(sensorValue));
-				sendData(KOTELNA_SMOKE_TEMPERATURE_DATA_IDENTIFICATOR, sensorValue);
-				break;
-			case SENSOR_KOTELNA_VYSTUP_ID:
-				Serial.println(KOTELNA_OUTPUT_TEMPERATURE_DATA_IDENTIFICATOR + ": " + String(sensorValue));
-				sendData(KOTELNA_OUTPUT_TEMPERATURE_DATA_IDENTIFICATOR, sensorValue);
-				break;
-			case SENSOR_KOTELNA_ZPATECKA_ID:
-				Serial.println(KOTELNA_RETURN_TEMPERATURE_DATA_IDENTIFICATOR + ": " + String(sensorValue));
-				sendData(KOTELNA_RETURN_TEMPERATURE_DATA_IDENTIFICATOR, sensorValue);
-				break;
-			default:
-				Serial.println("unknown (" + String(sensorId) + "): " + String(sensorValue));
-				break;
+				case RF_SENSOR_KOTELNA_INTERNAL_TEMPERATURE_ID:
+					Serial.println(SENSOR_KOTELNA_INTERNAL_TEMPERATURE_DATA_IDENTIFICATOR + ": " + String(sensorValue));
+					sendData(SENSOR_KOTELNA_INTERNAL_TEMPERATURE_DATA_IDENTIFICATOR, sensorValue);
+					break;
+				case RF_SENSOR_KOTELNA_SMOKE_TEMPERATURE_ID:
+					Serial.println(SENSOR_KOTELNA_SMOKE_TEMPERATURE_DATA_IDENTIFICATOR + ": " + String(sensorValue));
+					sendData(SENSOR_KOTELNA_SMOKE_TEMPERATURE_DATA_IDENTIFICATOR, sensorValue);
+					break;
+				case RF_SENSOR_KOTELNA_OUTPUT_TEMPERATURE_ID:
+					Serial.println(SENSOR_KOTELNA_OUTPUT_TEMPERATURE_DATA_IDENTIFICATOR + ": " + String(sensorValue));
+					sendData(SENSOR_KOTELNA_OUTPUT_TEMPERATURE_DATA_IDENTIFICATOR, sensorValue);
+					break;
+				case RF_SENSOR_KOTELNA_RETURN_TEMPERATURE_ID:
+					Serial.println(SENSOR_KOTELNA_RETURN_TEMPERATURE_DATA_IDENTIFICATOR + ": " + String(sensorValue));
+					sendData(SENSOR_KOTELNA_RETURN_TEMPERATURE_DATA_IDENTIFICATOR, sensorValue);
+					break;
+				default:
+					Serial.println("unknown (" + String(sensorId) + "): " + String(sensorValue));
+					break;
 			}
 
 			if (sensorId > 1000)
 			{
-				// rozhodilo se nam poradi, zkusim to srovnat
-				if (nRF.available()) 
+				// data order error, try to skip one packet
+				if (nRF.available())
 				{
 					nRF.read(&sensorId, sizeof(sensorId));
 					Serial.println("Syncing by skipping value " + sensorId);

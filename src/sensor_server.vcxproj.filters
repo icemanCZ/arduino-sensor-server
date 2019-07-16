@@ -16,6 +16,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="sensor_server.ino" />
+    <None Include="..\sensor server.fzz">
+      <Filter>Resource Files</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="__vm\.sensor_server.vsarduino.h">
@@ -27,5 +30,10 @@
     <ClInclude Include="shared.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="..\sensor server.png">
+      <Filter>Resource Files</Filter>
+    </Image>
   </ItemGroup>
 </Project>

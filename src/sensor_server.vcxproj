@@ -101,6 +101,7 @@
     <ProjectCapability Include="VisualMicro" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="..\sensor server.fzz" />
     <None Include="sensor_server.ino">
       <FileType>CppCode</FileType>
     </None>
@@ -109,6 +110,9 @@
     <ClInclude Include="shared.h" />
     <ClInclude Include="__vm\.arduino-sensor-server.vsarduino.h" />
     <ClInclude Include="__vm\.sensor_server.vsarduino.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="..\sensor server.png" />
   </ItemGroup>
   <PropertyGroup>
     <DebuggerFlavor>VisualMicroDebugger</DebuggerFlavor>
