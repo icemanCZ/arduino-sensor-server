@@ -1,2 +1,2 @@
 # arduino-sensor-server
-![Schéma](senzor%20server.PNG)
+![Schéma](sensor%20server.png)
