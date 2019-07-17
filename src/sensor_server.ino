@@ -169,6 +169,24 @@ void setup()
 
 
 
+bool checkCommunication(int sensorId, float value)
+{
+	if (sensorId > 1000 || sensorId <= 0)
+	{
+		// data order error, flush
+		Serial.println("Chyba pri prijmu dat. Mazu buffer.");
+		nRF.flush_rx();
+		return false;
+	}
+	if (value > 1000 || value == 0)
+	{
+		// data order error, flush
+		Serial.println("Chyba pri prijmu dat 2. Mazu buffer.");
+		nRF.flush_rx();
+		return false;
+	}
+	return true;
+}
 
 
 void loop()
@@ -190,8 +208,6 @@ void loop()
 	if (nRF.available())
 	{
 		// wait for data
-		long sensorId;
-		float sensorValue;
 		while (nRF.available())
 		{
 			Serial.println(F("Nova data ze vzdaleneho senzoru"));
@@ -200,10 +216,16 @@ void loop()
 			//Serial.println(data.sensorId);
 			//Serial.println(data.value);
 
+			long sensorId;
+			float sensorValue;
 
 			nRF.read(&sensorId, sizeof(sensorId));
-			delay(20);
+			int cnt = 0;
+			while (!nRF.available() && cnt++ < 5) { delay(10); };
 			nRF.read(&sensorValue, sizeof(sensorValue));
+
+			if (!checkCommunication(sensorId, sensorValue))
+				break;
 
 			switch (sensorId)
 			{
@@ -227,17 +249,6 @@ void loop()
 					Serial.println("unknown (" + String(sensorId) + "): " + String(sensorValue));
 					break;
 			}
-
-			if (sensorId > 1000)
-			{
-				// data order error, try to skip one packet
-				if (nRF.available())
-				{
-					nRF.read(&sensorId, sizeof(sensorId));
-					Serial.println("Syncing by skipping value " + sensorId);
-				}
-			}
-
 		}
 		Serial.println();
 	}
