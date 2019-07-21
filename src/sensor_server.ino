@@ -1,6 +1,7 @@
 // libraries
-#include "shared.h" 
+#include "homeiot_shared.h" 
 //#include <SPI.h>
+#include "nRF24L01.h"
 #include "RF24.h" 
 #include <OneWire.h>
 #include <DallasTemperature.h>
@@ -19,6 +20,8 @@ const String SENSOR_KOTELNA_SMOKE_TEMPERATURE_DATA_IDENTIFICATOR = "kotelna_smok
 const String SENSOR_KOTELNA_OUTPUT_TEMPERATURE_DATA_IDENTIFICATOR = "kotelna_output_temperature";  // identifikator cidla teploty vystupu z kotle v kotelne
 const String SENSOR_KOTELNA_RETURN_TEMPERATURE_DATA_IDENTIFICATOR = "kotelna_return_temperature";  // identifikator cidla teploty zpatecky kotle v kotelne
 
+const String SENSOR_OUTSIDE_TEMPERATURE_DATA_IDENTIFICATOR = "outside_temperature";  // identifikator cidla venkovni teploty
+
 
 
 
@@ -33,7 +36,8 @@ WiFiClient client;
 
 // Sensor server
 RF24 nRF(2, 15);   // init pins CE, CS
-const int RF_KOTELNA_PIPE = 1;
+const int RF_KOTELNA_PIPE = 0;
+const int RF_OUTSIDE_PIPE = 1;
 
 
 
@@ -46,18 +50,6 @@ DallasTemperature senzoryDS(&ds);
 
 unsigned long lastSensorValuesSent = 0;  // time from last internal sensor notification
 const unsigned long SENSOR_VALUES_SEND_INTERVAL = 5UL * 60UL * 1000UL; // internal sensor notification interval
-
-
-
-
-
-//typedef struct {
-//	int sensorId;
-//	float value;
-//} payload;
-//
-//payload data;
-
 
 
 
@@ -122,9 +114,6 @@ void sendData(String identificator, float value)
 	}
 }
 
-
-
-
 void setup()
 {
 	// serial line communication with 9600 baud
@@ -150,15 +139,11 @@ void setup()
 	Serial.println(F("  RF24"));
 	nRF.begin();
 
-	nRF.setPALevel(RF24_PA_HIGH);
-	//nRF.disableDynamicPayloads();
-	//nRF.setDataRate(RF24_250KBPS);
-	//nRF.setAutoAck(false);
-	//nRF.setChannel(50);
+	initRF(nRF);
 
-	// set read pipe
 	//nRF.openWritingPipe(adresaPrijimac);
 	nRF.openReadingPipe(RF_KOTELNA_PIPE, RF_KOTELNA_ADDRESS);
+	nRF.openReadingPipe(RF_OUTSIDE_PIPE, RF_OUTSIDE_ADDRESS);
 	nRF.startListening();
 
 	// settle time
@@ -219,12 +204,7 @@ void loop()
 			long sensorId;
 			float sensorValue;
 
-			nRF.read(&sensorId, sizeof(sensorId));
-			int cnt = 0;
-			while (!nRF.available() && cnt++ < 5) { delay(10); };
-			nRF.read(&sensorValue, sizeof(sensorValue));
-
-			if (!checkCommunication(sensorId, sensorValue))
+			if (!readData(nRF, &sensorId, &sensorValue))
 				break;
 
 			switch (sensorId)
@@ -244,6 +224,11 @@ void loop()
 				case RF_SENSOR_KOTELNA_RETURN_TEMPERATURE_ID:
 					Serial.println(SENSOR_KOTELNA_RETURN_TEMPERATURE_DATA_IDENTIFICATOR + ": " + String(sensorValue));
 					sendData(SENSOR_KOTELNA_RETURN_TEMPERATURE_DATA_IDENTIFICATOR, sensorValue);
+					break;
+
+				case RF_SENSOR_OUTSIDE_TEMPERATURE_ID:
+					Serial.println(SENSOR_OUTSIDE_TEMPERATURE_DATA_IDENTIFICATOR + ": " + String(sensorValue));
+					sendData(SENSOR_OUTSIDE_TEMPERATURE_DATA_IDENTIFICATOR, sensorValue);
 					break;
 				default:
 					Serial.println("unknown (" + String(sensorId) + "): " + String(sensorValue));
