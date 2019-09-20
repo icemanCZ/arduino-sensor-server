@@ -19,6 +19,7 @@ const String SENSOR_KOTELNA_INTERNAL_TEMPERATURE_DATA_IDENTIFICATOR = "kotelna_a
 const String SENSOR_KOTELNA_SMOKE_TEMPERATURE_DATA_IDENTIFICATOR = "kotelna_smoke_temperature";  // identifikator cidla teploty kourovodu v kotelne
 const String SENSOR_KOTELNA_OUTPUT_TEMPERATURE_DATA_IDENTIFICATOR = "kotelna_output_temperature";  // identifikator cidla teploty vystupu z kotle v kotelne
 const String SENSOR_KOTELNA_RETURN_TEMPERATURE_DATA_IDENTIFICATOR = "kotelna_return_temperature";  // identifikator cidla teploty zpatecky kotle v kotelne
+const String SENSOR_KOTELNA_GAS_KETTLE_TEMPERATURE_DATA_IDENTIFICATOR = "kotelna_gas_kettle_temperature";  // identifikator cidla teploty zpatecky plynoveho kotle v kotelne
 
 const String SENSOR_OUTSIDE_TEMPERATURE_DATA_IDENTIFICATOR = "outside_temperature";  // identifikator cidla venkovni teploty
 
@@ -224,6 +225,10 @@ void loop()
 				case RF_SENSOR_KOTELNA_RETURN_TEMPERATURE_ID:
 					Serial.println(SENSOR_KOTELNA_RETURN_TEMPERATURE_DATA_IDENTIFICATOR + ": " + String(sensorValue));
 					sendData(SENSOR_KOTELNA_RETURN_TEMPERATURE_DATA_IDENTIFICATOR, sensorValue);
+					break;
+				case RF_SENSOR_KOTELNA_GAS_KETTLE_TEMPERATURE_ID:
+					Serial.println(SENSOR_KOTELNA_GAS_KETTLE_TEMPERATURE_DATA_IDENTIFICATOR + ": " + String(sensorValue));
+					sendData(SENSOR_KOTELNA_GAS_KETTLE_TEMPERATURE_DATA_IDENTIFICATOR, sensorValue);
 					break;
 
 				case RF_SENSOR_OUTSIDE_TEMPERATURE_ID:
